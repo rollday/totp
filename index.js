@@ -1,5 +1,9 @@
+const path = require('path');
 const express = require('express');
 const totpService = require('./services/totpService');
+
+const DEFAULT_ISSUER = process.env.TOTP_DEFAULT_ISSUER || 'TOTP Server';
+const DEFAULT_ACCOUNT = process.env.TOTP_DEFAULT_ACCOUNT || 'user';
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -7,6 +11,7 @@ const PORT = process.env.PORT || 3000;
 // 中间件
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
+app.use('/ui', express.static(path.join(__dirname, 'public')));
 
 // 路由
 app.get('/', (req, res) => {
@@ -31,10 +36,10 @@ app.get('/health', (req, res) => {
 });
 
 // TOTP生成端点
-app.post('/api/totp/generate', (req, res) => {
+app.post('/api/totp/generate', async (req, res) => {
   try {
     const { issuer, account } = req.body;
-    const result = totpService.generateSecret(issuer, account);
+    const result = await totpService.generateSecret(issuer, account);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -42,10 +47,10 @@ app.post('/api/totp/generate', (req, res) => {
 });
 
 // TOTP验证端点（简单）
-app.post('/api/totp/verify', (req, res) => {
+app.post('/api/totp/verify', async (req, res) => {
   try {
-    const { secret, token } = req.body;
-    const isValid = totpService.verifyToken(secret, token);
+    const { secret, token, issuer, account } = req.body;
+    const isValid = await totpService.verifyToken(secret, token, issuer, account);
     res.json({ valid: isValid });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -53,10 +58,10 @@ app.post('/api/totp/verify', (req, res) => {
 });
 
 // TOTP验证端点（详细）
-app.post('/api/totp/verify-details', (req, res) => {
+app.post('/api/totp/verify-details', async (req, res) => {
   try {
-    const { secret, token } = req.body;
-    const result = totpService.verifyTokenWithDetails(secret, token);
+    const { secret, token, issuer, account } = req.body;
+    const result = await totpService.verifyTokenWithDetails(secret, token, issuer, account);
     res.json(result);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -64,30 +69,22 @@ app.post('/api/totp/verify-details', (req, res) => {
 });
 
 // 获取当前有效令牌
-app.post('/api/totp/current-token', (req, res) => {
+app.post('/api/totp/current-token', async (req, res) => {
   try {
-    const { secret } = req.body;
-    if (!secret) {
-      return res.status(400).json({ error: '缺少secret参数' });
-    }
-    const token = totpService.getCurrentToken(secret);
-    res.json({ secret, currentToken: token, timestamp: Date.now() });
+    const { secret, issuer, account } = req.body;
+    const token = await totpService.getCurrentToken(secret, issuer, account);
+    res.json({ secret: secret || null, currentToken: token, timestamp: Date.now() });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
 
 // 二维码生成端点（PNG图片）
-app.get('/api/totp/qrcode', (req, res) => {
+app.get('/api/totp/qrcode', async (req, res) => {
   try {
-    const { secret, issuer = 'TOTP Server', account = 'user' } = req.query;
-    if (!secret) {
-      return res.status(400).json({ error: '缺少secret参数' });
-    }
-
-    totpService.generateQRCode(secret, issuer, account, res);
+    const { secret, issuer = DEFAULT_ISSUER, account = DEFAULT_ACCOUNT } = req.query;
+    await totpService.generateQRCode(secret, issuer, account, res);
   } catch (error) {
-    // 如果响应头已发送，则不能发送JSON错误
     if (res.headersSent) {
       console.error('生成二维码时出错（响应头已发送）:', error.message);
       res.end();
@@ -100,16 +97,12 @@ app.get('/api/totp/qrcode', (req, res) => {
 // 二维码生成端点（Base64数据URL）
 app.get('/api/totp/qrcode-dataurl', async (req, res) => {
   try {
-    const { secret, issuer = 'TOTP Server', account = 'user' } = req.query;
-    if (!secret) {
-      return res.status(400).json({ error: '缺少secret参数' });
-    }
-
+    const { secret, issuer = DEFAULT_ISSUER, account = DEFAULT_ACCOUNT } = req.query;
     const dataURL = await totpService.generateQRCodeDataURL(secret, issuer, account);
     res.json({
       success: true,
       dataURL: dataURL,
-      secret: secret,
+      secret: secret || null,
       issuer: issuer,
       account: account
     });

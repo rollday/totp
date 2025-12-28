@@ -28,13 +28,25 @@ npm run dev
 服务启动后访问首页查看可用端点：
 - http://localhost:3000/
 - 健康检查: http://localhost:3000/health
+- 可视化测试页: http://localhost:3000/ui
+
+## 环境变量
+- `PORT`：服务端口，默认 3000
+- `TOTP_DEFAULT_ISSUER`：默认发行者（issuer），默认 `TOTP Server`
+- `TOTP_DEFAULT_ACCOUNT`：默认账户标识（account），默认 `user`
+- `TOTP_WINDOW`：TOTP 验证窗口大小，默认 `1`
+- `TOTP_DIGITS`：令牌位数，默认 `6`
+- `TOTP_DB_PATH`：SQLite 文件路径，默认 `./totp.db`
+- `TOTP_REDIS_URL`：Redis 连接串（可选，未配置则仅用 SQLite）
+
+密钥生成会以 `issuer+account` 为键持久化到 SQLite，并可选使用 Redis 做缓存。
 
 ## API 概览
 所有请求和响应均为 JSON，除二维码 PNG 接口外。
 
 - 生成密钥: POST /api/totp/generate
-- 验证令牌（简版）: POST /api/totp/verify
-- 验证令牌（详情）: POST /api/totp/verify-details
+- 验证令牌（简版）: POST /api/totp/verify（可传 secret，或使用 issuer+account 读取已持久化的 secret）
+- 验证令牌（详情）: POST /api/totp/verify-details（同上）
 - 获取当前令牌: POST /api/totp/current-token
 - 二维码 PNG: GET /api/totp/qrcode?secret=...&issuer=...&account=...
 - 二维码 Data URL: GET /api/totp/qrcode-dataurl?secret=...&issuer=...&account=...

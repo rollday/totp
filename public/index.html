@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TOTP 测试面板</title>
+  <style>
+    :root {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "Noto Sans", sans-serif;
+      color: #0f172a;
+      background: #f8fafc;
+    }
+    body { margin: 0; padding: 0; }
+    .container { max-width: 960px; margin: 32px auto; padding: 0 16px; }
+    h1 { margin-bottom: 8px; }
+    .card {
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 16px;
+      box-shadow: 0 2px 4px rgba(15, 23, 42, 0.06);
+    }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    label { display: block; font-size: 14px; margin-bottom: 6px; color: #475569; }
+    input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 14px;
+      box-sizing: border-box;
+    }
+    button {
+      padding: 10px 14px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: background 0.15s ease;
+    }
+    button.secondary { background: #0ea5e9; }
+    button:hover { background: #1d4ed8; }
+    button.secondary:hover { background: #0284c7; }
+    .status { padding: 10px 12px; border-radius: 8px; margin-top: 8px; }
+    .status.info { background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
+    .status.error { background: #fef2f2; color: #b91c1c; border: 1px solid #fecdd3; }
+    code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    .qr { max-width: 220px; border: 1px solid #e2e8f0; border-radius: 8px; padding: 8px; background: #f8fafc; }
+    .muted { color: #64748b; font-size: 13px; }
+    .pill { display: inline-block; padding: 4px 8px; border-radius: 999px; background: #e0f2fe; color: #075985; font-size: 12px; margin-right: 6px; }
+    .section-title { display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>TOTP 测试面板</h1>
+    <p class="muted">用于快速生成账户、查看当前验证码、倒计时与验证测试。</p>
+
+    <div class="card">
+      <div class="section-title">
+        <h2>1. 生成账户与密钥</h2>
+        <span class="pill" id="config-pill">配置获取中...</span>
+      </div>
+      <form id="generate-form">
+        <div class="row">
+          <div style="flex:1; min-width: 200px;">
+            <label for="issuer">Issuer（发行者）</label>
+            <input id="issuer" name="issuer" placeholder="如：MyApp" required>
+          </div>
+          <div style="flex:1; min-width: 200px;">
+            <label for="account">Account（账户标识）</label>
+            <input id="account" name="account" placeholder="如：user@example.com" required>
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <button type="submit">生成密钥</button>
+        </div>
+      </form>
+      <div id="generate-result" style="margin-top: 12px;"></div>
+      <div id="qr-wrapper" style="margin-top: 12px; display:none;">
+        <div class="muted">扫码将密钥添加到验证器</div>
+        <img id="qr-img" alt="TOTP QR" class="qr">
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <h2>2. 查看当前验证码</h2>
+      </div>
+      <div class="row">
+        <div style="flex:1; min-width: 220px;">
+          <label for="secret">Secret（密钥）</label>
+          <input id="secret" placeholder="从上方生成或手动填写">
+        </div>
+      </div>
+      <div style="margin-top: 12px; display:flex; gap:8px; flex-wrap:wrap;">
+        <button id="refresh-token" type="button">刷新当前码</button>
+        <button id="copy-secret" type="button" class="secondary">复制密钥</button>
+      </div>
+      <div style="margin-top: 12px;">
+        <div>当前验证码： <span class="mono" id="current-token">-</span></div>
+        <div>距离过期： <span class="mono" id="expires-in">-</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">
+        <h2>3. 验证测试码</h2>
+      </div>
+      <form id="verify-form">
+        <div class="row">
+          <div style="flex:1; min-width: 200px;">
+            <label for="test-token">验证码（6/8位）</label>
+            <input id="test-token" name="token" placeholder="输入要验证的验证码" required>
+          </div>
+          <div style="flex:1; min-width: 200px;">
+            <label for="verify-secret">Secret（若为空则使用上方密钥）</label>
+            <input id="verify-secret" name="secret" placeholder="可留空，默认使用上方密钥">
+          </div>
+        </div>
+        <div style="margin-top: 12px;">
+          <button type="submit">验证</button>
+        </div>
+      </form>
+      <div id="verify-result" style="margin-top: 12px;"></div>
+    </div>
+
+    <div id="status" class="status info" style="display:none;"></div>
+  </div>
+
+  <script>
+    const statusEl = document.getElementById('status');
+    const configPill = document.getElementById('config-pill');
+    const generateForm = document.getElementById('generate-form');
+    const verifyForm = document.getElementById('verify-form');
+    const issuerInput = document.getElementById('issuer');
+    const accountInput = document.getElementById('account');
+    const secretInput = document.getElementById('secret');
+    const verifySecretInput = document.getElementById('verify-secret');
+    const tokenInput = document.getElementById('test-token');
+    const currentTokenEl = document.getElementById('current-token');
+    const expiresInEl = document.getElementById('expires-in');
+    const generateResultEl = document.getElementById('generate-result');
+    const verifyResultEl = document.getElementById('verify-result');
+    const qrWrapper = document.getElementById('qr-wrapper');
+    const qrImg = document.getElementById('qr-img');
+    const refreshBtn = document.getElementById('refresh-token');
+    const copyBtn = document.getElementById('copy-secret');
+
+    let stepSeconds = 30;
+    let countdownTimer = null;
+    let refreshTimeout = null;
+    let expiryAt = null;
+    const apiKey = new URLSearchParams(window.location.search).get('api_key') || '';
+    const authHeaders = apiKey ? { 'x-api-key': apiKey } : {};
+
+    function showStatus(message, type = 'info') {
+      statusEl.textContent = message;
+      statusEl.className = `status ${type}`;
+      statusEl.style.display = 'block';
+    }
+
+    function clearStatus() {
+      statusEl.style.display = 'none';
+    }
+
+    function setSecret(secret) {
+      secretInput.value = secret || '';
+      verifySecretInput.value = secret || '';
+    }
+
+    function formatSecondsLeft(ms) {
+      if (ms == null) return '-';
+      const seconds = Math.max(0, Math.round(ms / 1000));
+      return `${seconds}s`;
+    }
+
+    function scheduleAutoRefresh(remainingMs) {
+      if (refreshTimeout) clearTimeout(refreshTimeout);
+      if (!secretInput.value.trim()) return;
+      const delay = Math.max(200, remainingMs + 100); // slight buffer
+      refreshTimeout = setTimeout(() => refreshCurrentToken({ silent: true }), delay);
+    }
+
+    function startCountdown(timestampMs) {
+      if (!stepSeconds || !Number.isFinite(timestampMs)) return;
+      const stepMs = stepSeconds * 1000;
+      const currentWindowStart = Math.floor(timestampMs / stepMs) * stepMs;
+      expiryAt = currentWindowStart + stepMs;
+
+      if (countdownTimer) clearInterval(countdownTimer);
+
+      const update = () => {
+        if (!expiryAt) return;
+        const remaining = expiryAt - Date.now();
+        expiresInEl.textContent = formatSecondsLeft(remaining);
+        if (remaining <= 0) {
+          expiresInEl.textContent = '自动刷新中...';
+        }
+      };
+
+      update();
+      countdownTimer = setInterval(update, 500);
+      scheduleAutoRefresh(expiryAt - Date.now());
+    }
+
+    async function fetchConfig() {
+      try {
+        const res = await fetch('/api/totp/config', { headers: authHeaders });
+        const data = await res.json();
+        stepSeconds = data.step || 30;
+        configPill.textContent = `step=${data.step}s · digits=${data.digits} · window=${data.window} · alg=${data.algorithm}`;
+      } catch (err) {
+        configPill.textContent = '配置获取失败';
+        showStatus('获取配置失败', 'error');
+      }
+    }
+
+    async function loadQRCode(secret, issuer, account) {
+      if (!secret) return;
+      try {
+        const url = `/api/totp/qrcode-dataurl?secret=${encodeURIComponent(secret)}&issuer=${encodeURIComponent(issuer)}&account=${encodeURIComponent(account)}`;
+        const res = await fetch(url, { headers: authHeaders });
+        const data = await res.json();
+        if (data && data.dataURL) {
+          qrImg.src = data.dataURL;
+          qrWrapper.style.display = 'block';
+        }
+      } catch (err) {
+        showStatus('二维码获取失败', 'error');
+      }
+    }
+
+    async function refreshCurrentToken(options = {}) {
+      const silent = options.silent;
+      const secret = secretInput.value.trim();
+      if (!secret) {
+        showStatus('请先填写或生成密钥', 'error');
+        return;
+      }
+      clearStatus();
+      try {
+        const res = await fetch('/api/totp/current-token', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret })
+        });
+        if (!res.ok) throw new Error('接口调用失败');
+        const data = await res.json();
+        currentTokenEl.textContent = data.currentToken || '-';
+        startCountdown(data.timestamp);
+        if (!silent) {
+          showStatus('当前验证码已刷新', 'info');
+        }
+      } catch (err) {
+        showStatus('刷新验证码失败：' + err.message, 'error');
+      }
+    }
+
+    generateForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearStatus();
+      try {
+        const payload = {
+          issuer: issuerInput.value.trim(),
+          account: accountInput.value.trim()
+        };
+        const res = await fetch('/api/totp/generate', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) throw new Error('接口调用失败');
+        const data = await res.json();
+        setSecret(data.secret);
+        generateResultEl.innerHTML = `
+          <div>Secret: <span class="mono">${data.secret}</span></div>
+          <div>otpauth: <span class="mono">${data.otpauth}</span></div>
+          <div>当前验证码: <span class="mono">${data.currentToken}</span></div>
+        `;
+        await loadQRCode(data.secret, data.issuer, data.account);
+        await refreshCurrentToken();
+        showStatus('生成成功，已更新二维码和当前码', 'info');
+      } catch (err) {
+        showStatus('生成失败：' + err.message, 'error');
+      }
+    });
+
+    refreshBtn.addEventListener('click', refreshCurrentToken);
+
+    copyBtn.addEventListener('click', async () => {
+      const secret = secretInput.value.trim();
+      if (!secret) {
+        showStatus('没有可复制的密钥', 'error');
+        return;
+      }
+      try {
+        await navigator.clipboard.writeText(secret);
+        showStatus('密钥已复制到剪贴板', 'info');
+      } catch (err) {
+        showStatus('复制失败：' + err.message, 'error');
+      }
+    });
+
+    verifyForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      clearStatus();
+      const token = tokenInput.value.trim();
+      const secret = (verifySecretInput.value.trim() || secretInput.value.trim());
+      if (!secret) {
+        showStatus('请先填写密钥', 'error');
+        return;
+      }
+      try {
+        const res = await fetch('/api/totp/verify', {
+          method: 'POST',
+          headers: { ...authHeaders, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret, token })
+        });
+        if (!res.ok) throw new Error('接口调用失败');
+        const data = await res.json();
+        verifyResultEl.innerHTML = data.valid
+          ? '<div class="status info">验证结果：有效 ✅</div>'
+          : '<div class="status error">验证结果：无效 ❌</div>';
+      } catch (err) {
+        verifyResultEl.innerHTML = `<div class="status error">验证失败：${err.message}</div>`;
+      }
+    });
+
+    fetchConfig();
+  </script>
+</body>
+</html>
